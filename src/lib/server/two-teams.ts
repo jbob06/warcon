@@ -5,7 +5,7 @@
 // runs the step on each fresh player list, keeps its state in the worker's memory and writes the
 // moves to the outbox.
 import { settingsFingerprint } from './fingerprint';
-import { ApiError, str } from './http';
+import { ApiError, int, str } from './http';
 import { MAX_CHAT } from '$lib/chat';
 
 /** How long a move is waited on before it is asked for again (the player is still on the closed faction). */
@@ -37,6 +37,25 @@ export interface TwoTeamsConfig {
 	names: Record<string, string>;
 	/** whispered once a moved player lands, with {team}; '' sends nothing */
 	message: string;
+	/**
+	 * Keep clans together: a player whose clan tag is mostly on one open side is placed there, while
+	 * that would leave the side at most this many players ahead of the other. Absent on a rule that
+	 * does not group clans, so such a rule's fingerprint is what it was before the setting existed.
+	 */
+	clanGap?: number;
+}
+
+/** The most a side may be let ahead for a clan's sake. */
+export const TWO_TEAMS_MAX_CLAN_GAP = 10;
+
+/**
+ * A player's clan tag, as the game shows it: square brackets at the front of the name, "[WOLF] Dan".
+ * Folded, so [wolf] and [WOLF] are one clan; null without one. Twelve characters at most: a longer
+ * bracket is a name, not a tag.
+ */
+export function clanTag(name: string): string | null {
+	const m = /^\s*\[([^\]]{1,12})\]/.exec(name);
+	return (m && m[1].normalize('NFKC').trim().toUpperCase()) || null;
 }
 
 export function validateTwoTeams(c: Record<string, unknown>): TwoTeamsConfig {
@@ -49,7 +68,13 @@ export function validateTwoTeams(c: Record<string, unknown>): TwoTeamsConfig {
 			const name = str(v, 40);
 			if (faction && name && faction !== closedFaction) names[faction] = name;
 		}
-	return { closedFaction, names, message: str(c.message, MAX_CHAT) };
+	const clanGap = int(c.clanGap, 0, 0, TWO_TEAMS_MAX_CLAN_GAP);
+	return {
+		closedFaction,
+		names,
+		message: str(c.message, MAX_CHAT),
+		...(clanGap ? { clanGap } : {})
+	};
 }
 
 /**
@@ -79,8 +104,8 @@ export const emptyTwoTeamsState = (): TwoTeamsState => ({
 
 export interface TwoTeamsStep {
 	state: TwoTeamsState;
-	/** players to move now, and where */
-	moves: { steamId: string; name: string; from: string; to: string }[];
+	/** players to move now, and where; `clan` is the tag a player was placed with, when one decided the side */
+	moves: { steamId: string; name: string; from: string; to: string; clan?: string }[];
 	/** moved players now on their side and not told yet */
 	whispers: { steamId: string; name: string; faction: string }[];
 	/** players the rule has just stopped moving for being asked too often */
@@ -92,6 +117,13 @@ export interface TwoTeamsStep {
  * minus the closed one); at most `maxMoves` moves are asked for. Players already being moved count
  * toward their target, so a burst at a match start splits evenly; a move not seen landed after
  * TWO_TEAMS_RETRY_MS is asked for again.
+ *
+ * With `clanGap`, a player with a clan tag goes to the open side most of that clan is on (players
+ * there, and moves on their way there), while that leaves the side at most `clanGap` ahead of the
+ * other; a clan split evenly, or one that would tip the sides further, is placed as anyone else. So a
+ * clan that lands on the closed faction together at a match start follows its first member. Only a
+ * player's first ask in the window is placed this way: a move that did not land is asked for again
+ * toward the smaller side, as it was before clans were looked at.
  */
 export function twoTeamsStep(
 	cfg: TwoTeamsConfig,
@@ -144,6 +176,19 @@ export function twoTeamsStep(
 		if (p.faction === cfg.closedFaction && m && counts.has(m.to))
 			counts.set(m.to, counts.get(m.to)! + 1);
 	}
+	// Each clan's players per open side, those on their way there included.
+	const gap = cfg.clanGap ?? 0;
+	const clans = new Map<string, Map<string, number>>();
+	const joins = (tag: string, side: string) => {
+		const sides = clans.get(tag) ?? new Map<string, number>();
+		clans.set(tag, sides.set(side, (sides.get(side) ?? 0) + 1));
+	};
+	if (gap > 0)
+		for (const p of players) {
+			const tag = clanTag(p.name);
+			const side = p.faction === cfg.closedFaction ? state.moving.get(p.steamId)?.to : p.faction;
+			if (tag && side && counts.has(side)) joins(tag, side);
+		}
 	for (const p of players) {
 		if (p.faction !== cfg.closedFaction || state.moving.has(p.steamId)) continue;
 		const times = state.asked.get(p.steamId) ?? [];
@@ -157,11 +202,31 @@ export function twoTeamsStep(
 		if (moves.length >= maxMoves) continue;
 		const low = Math.min(...counts.values());
 		const ties = open.filter((f) => counts.get(f) === low);
-		const to = ties[Math.min(ties.length - 1, Math.floor(random() * ties.length))];
-		counts.set(to, low + 1);
+		let to = ties[Math.min(ties.length - 1, Math.floor(random() * ties.length))];
+		const tag = gap > 0 ? clanTag(p.name) : null;
+		let clan: string | undefined;
+		if (tag && !times.length) {
+			// The side with more of the clan than any other, if joining it keeps the sides within the gap.
+			const sides = clans.get(tag);
+			const most = Math.max(0, ...(sides?.values() ?? []));
+			const held = open.filter((f) => most > 0 && sides!.get(f) === most);
+			const others = open.filter((f) => f !== held[0]).map((f) => counts.get(f)!);
+			if (held.length === 1 && counts.get(held[0])! + 1 - Math.min(...others) <= gap) {
+				to = held[0];
+				clan = tag;
+			}
+		}
+		if (tag) joins(tag, to);
+		counts.set(to, counts.get(to)! + 1);
 		state.moving.set(p.steamId, { to, at: now });
 		state.asked.set(p.steamId, [...times, now]);
-		moves.push({ steamId: p.steamId, name: p.name, from: cfg.closedFaction, to });
+		moves.push({
+			steamId: p.steamId,
+			name: p.name,
+			from: cfg.closedFaction,
+			to,
+			...(clan ? { clan } : {})
+		});
 	}
 	return { state, moves, whispers, stopped };
 }

@@ -898,8 +898,8 @@ function evalTwoTeams(ctx: TickContext, row: TriggerRow, cfg: TwoTeamsConfig, ou
 			action: 'changeTeam',
 			params: { steamId: m.steamId, faction: m.to, from: m.from, rule: config },
 			target: m.steamId,
-			okMessage: `Moved ${m.name} to ${teamName(cfg, m.to)}.`,
-			detail: { name: m.name, from: m.from, to: m.to },
+			okMessage: `Moved ${m.name} to ${teamName(cfg, m.to)}${m.clan ? `, with [${m.clan}]` : ''}.`,
+			detail: { name: m.name, from: m.from, to: m.to, ...(m.clan ? { clan: m.clan } : {}) },
 			steamId: m.steamId,
 			dedupeKey: key(row, m.steamId, now)
 		});

@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
+	clanTag,
 	emptyTwoTeamsState,
 	TWO_TEAMS_ASK_WINDOW_MS,
 	TWO_TEAMS_FORGET_MS,
 	TWO_TEAMS_MAX_ASKS,
+	TWO_TEAMS_MAX_CLAN_GAP,
 	TWO_TEAMS_RETRY_MS,
 	teamName,
 	twoTeamsSettingsKey,
@@ -141,6 +143,136 @@ describe('twoTeamsStep', () => {
 		const later = step(state, [p('1', 'Lonestar')], TWO_TEAMS_ASK_WINDOW_MS + 60_000);
 		expect(later.moves).toHaveLength(1);
 		expect(later.state.capped.has('1')).toBe(false);
+	});
+});
+
+describe('clanTag', () => {
+	test('reads square brackets at the front of a name, folded', () => {
+		expect(clanTag('[WOLF] Dan')).toBe('WOLF');
+		expect(clanTag('  [wolf]Dan')).toBe('WOLF');
+		expect(clanTag('[ w f ] Dan')).toBe('W F');
+	});
+	test('is null without a tag, for an empty or overlong bracket, and for one later in the name', () => {
+		expect(clanTag('Dan')).toBeNull();
+		expect(clanTag('[] Dan')).toBeNull();
+		expect(clanTag('[   ] Dan')).toBeNull();
+		expect(clanTag('[the strongest soldier] Dan')).toBeNull();
+		expect(clanTag('Dan [WOLF]')).toBeNull();
+	});
+});
+
+describe('twoTeamsStep keeping clans together', () => {
+	const clans = { ...cfg, clanGap: 3 };
+	const named = (id: string, name: string, faction: string | null) => ({
+		steamId: id,
+		name,
+		faction
+	});
+	const go = (state: TwoTeamsState, players: ReturnType<typeof named>[], now = 0, c = clans) =>
+		twoTeamsStep(c, state, players, OPEN, now, ALL, first);
+
+	test('a rule without the setting places a clan member on the smaller side, as before', () => {
+		const players = [
+			named('1', '[WOLF] A', 'Valkyra'),
+			named('2', 'B', 'Valkyra'),
+			named('3', '[WOLF] C', 'Lonestar')
+		];
+		const r = twoTeamsStep(cfg, emptyTwoTeamsState(), players, OPEN, 0, ALL, first);
+		expect(r.moves).toEqual([
+			{ steamId: '3', name: '[WOLF] C', from: 'Lonestar', to: 'Manticore' }
+		]);
+	});
+
+	test('a player joins the side their clan is on, though it is the larger one', () => {
+		const players = [
+			named('1', '[WOLF] A', 'Valkyra'),
+			named('2', 'B', 'Valkyra'),
+			named('3', '[wolf] C', 'Lonestar'),
+			named('4', 'D', 'Lonestar')
+		];
+		const r = go(emptyTwoTeamsState(), players);
+		expect(r.moves).toEqual([
+			{ steamId: '3', name: '[wolf] C', from: 'Lonestar', to: 'Valkyra', clan: 'WOLF' },
+			{ steamId: '4', name: 'D', from: 'Lonestar', to: 'Manticore' }
+		]);
+	});
+
+	test('a clan that lands on the closed faction together follows its first member', () => {
+		const players = Array.from({ length: 4 }, (_, i) =>
+			named(String(i), `[WOLF] ${i}`, 'Lonestar')
+		);
+		const r = go(emptyTwoTeamsState(), players);
+		// the first is placed as anyone; the next two join it; a fourth would put the side 4 ahead
+		expect(r.moves.map((m) => m.to)).toEqual(['Valkyra', 'Valkyra', 'Valkyra', 'Manticore']);
+		expect(r.moves.map((m) => m.clan)).toEqual([undefined, 'WOLF', 'WOLF', undefined]);
+	});
+
+	test('members still on their way count: the rest of a clan follows at the next look', () => {
+		const a = go(emptyTwoTeamsState(), [named('1', '[WOLF] A', 'Lonestar')]);
+		const b = go(
+			a.state,
+			[named('1', '[WOLF] A', 'Lonestar'), named('2', '[WOLF] B', 'Lonestar')],
+			1000
+		);
+		expect(b.moves).toEqual([
+			expect.objectContaining({ steamId: '2', to: a.moves[0].to, clan: 'WOLF' })
+		]);
+	});
+
+	test('never lets the clan side further ahead than the gap', () => {
+		const players = [
+			...Array.from({ length: 5 }, (_, i) => named(`v${i}`, `[WOLF] V${i}`, 'Valkyra')),
+			...Array.from({ length: 2 }, (_, i) => named(`m${i}`, `M${i}`, 'Manticore')),
+			named('x', '[WOLF] X', 'Lonestar')
+		];
+		// 5 v 2: joining the clan would make it 6 v 2
+		expect(go(emptyTwoTeamsState(), players).moves).toEqual([
+			{ steamId: 'x', name: '[WOLF] X', from: 'Lonestar', to: 'Manticore' }
+		]);
+		// a wider gap lets them through
+		expect(go(emptyTwoTeamsState(), players, 0, { ...cfg, clanGap: 4 }).moves[0]).toEqual(
+			expect.objectContaining({ to: 'Valkyra', clan: 'WOLF' })
+		);
+	});
+
+	test('a clan split evenly has no side, and is placed on the smaller one', () => {
+		const players = [
+			named('1', '[WOLF] A', 'Valkyra'),
+			named('2', '[WOLF] B', 'Manticore'),
+			named('3', 'C', 'Manticore'),
+			named('4', '[WOLF] D', 'Lonestar')
+		];
+		expect(go(emptyTwoTeamsState(), players).moves).toEqual([
+			{ steamId: '4', name: '[WOLF] D', from: 'Lonestar', to: 'Valkyra' }
+		]);
+	});
+
+	test('a move asked for a second time goes to the smaller side, not back to the clan', () => {
+		const players = [
+			named('1', '[WOLF] A', 'Valkyra'),
+			named('2', 'B', 'Valkyra'),
+			named('3', '[WOLF] C', 'Lonestar')
+		];
+		const a = go(emptyTwoTeamsState(), players);
+		expect(a.moves[0]).toEqual(expect.objectContaining({ to: 'Valkyra', clan: 'WOLF' }));
+		// still on the closed faction once the wait is over: the move did not land
+		const b = go(a.state, players, TWO_TEAMS_RETRY_MS);
+		expect(b.moves).toEqual([
+			{ steamId: '3', name: '[WOLF] C', from: 'Lonestar', to: 'Manticore' }
+		]);
+	});
+
+	test('validateTwoTeams keeps a gap from 1 to the limit, and leaves the setting out when it is off', () => {
+		const base = { closedFaction: 'Lonestar' };
+		expect(validateTwoTeams({ ...base, clanGap: 3 }).clanGap).toBe(3);
+		expect(validateTwoTeams({ ...base, clanGap: 99 }).clanGap).toBe(TWO_TEAMS_MAX_CLAN_GAP);
+		for (const off of [0, -2, '', null, 'x'])
+			expect('clanGap' in validateTwoTeams({ ...base, clanGap: off })).toBe(false);
+		// so a rule saved before the setting existed keeps its fingerprint when saved again
+		expect(twoTeamsSettingsKey(validateTwoTeams({ ...cfg, clanGap: 0 }))).toBe(
+			twoTeamsSettingsKey(cfg)
+		);
+		expect(twoTeamsSettingsKey({ ...cfg, clanGap: 3 })).not.toBe(twoTeamsSettingsKey(cfg));
 	});
 });
 

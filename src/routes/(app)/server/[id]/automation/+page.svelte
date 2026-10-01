@@ -396,6 +396,7 @@
 		headshotMinKills: number;
 		closedFaction: string;
 		teamNames: Record<string, string>;
+		clanGap: number;
 		causes: string[];
 		minDistanceM: number;
 		count: number;
@@ -547,6 +548,7 @@
 			closedFaction: s('closedFaction', 'Lonestar'),
 			teamNames:
 				c.names && typeof c.names === 'object' ? { ...(c.names as Record<string, string>) } : {},
+			clanGap: n('clanGap', 0),
 			causes: Array.isArray(c.causes)
 				? [...(c.causes as string[])]
 				: ['Id.Item.Defibrillator.Standard'],
@@ -693,7 +695,9 @@
 							([k, v]) => k !== f.closedFaction.trim() && v?.trim()
 						)
 					),
-					message: f.message
+					message: f.message,
+					// left out when off, so a rule that does not group clans is saved as it always was
+					...(Number(f.clanGap) > 0 ? { clanGap: Number(f.clanGap) } : {})
 				};
 			case 'seed_reward':
 				return {
@@ -890,6 +894,7 @@
 				return [
 					`${c.closedFaction} closed, its players moved to the smaller side`,
 					names.length ? names.join(', ') : '',
+					Number(c.clanGap) > 0 ? `clans kept together, up to ${c.clanGap} ahead` : '',
 					c.message ? 'with a whisper' : ''
 				]
 					.filter(Boolean)
@@ -1729,6 +1734,27 @@
 						{/each}
 						<p class="text-[12px] text-mist-600">
 							Used for {'{team}'} in the whisper, e.g. Red and Green. Empty keeps the faction name.
+						</p>
+					</fieldset>
+					<fieldset class="space-y-2">
+						<legend class="field-label">Keep clans together (optional)</legend>
+						<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px]">
+							Place a player with their clan while that side is at most
+							<input
+								class="input w-20 text-right"
+								type="number"
+								min="0"
+								max="10"
+								bind:value={f.clanGap}
+								aria-label="Players a side may be ahead for a clan"
+							/>
+							players ahead <span class="text-mist-600">(0 turns it off)</span>
+						</div>
+						<p class="text-[12px] text-mist-600">
+							A clan is the tag in square brackets at the front of a name, e.g. [WOLF]. A player
+							goes to the side most of their clan is on, players on their way there included, so a
+							clan that joins together stays together. A clan split evenly, or one that would put a
+							side further ahead than this, is placed on the smaller side as anyone else.
 						</p>
 					</fieldset>
 					<fieldset class="space-y-2">

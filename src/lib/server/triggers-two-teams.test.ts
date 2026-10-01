@@ -121,4 +121,24 @@ describe('the Two-team mode rule', () => {
 			'Moving P106; left P7 on Lonestar: asked to move 3 times in 10 min'
 		]);
 	});
+
+	test('with clans kept together, a move says which clan decided the side', async () => {
+		const rule = row({ ...CLOSED, clanGap: 3 });
+		const players = [
+			{ ...player('1', 'Valkyra'), name: '[WOLF] A' },
+			player('2', 'Valkyra'),
+			{ ...player('3', 'Lonestar'), name: '[WOLF] C' },
+			player('4', 'Lonestar')
+		];
+		const ev = await look(rule, tick(players, 0));
+		const moves = ev.intents.filter((i) => i.action === 'changeTeam');
+		expect(moves.map((i) => [i.params.faction, i.okMessage, i.detail])).toEqual([
+			[
+				'Valkyra',
+				'Moved [WOLF] C to Valkyra, with [WOLF].',
+				{ name: '[WOLF] C', from: 'Lonestar', to: 'Valkyra', clan: 'WOLF' }
+			],
+			['Manticore', 'Moved P4 to Manticore.', { name: 'P4', from: 'Lonestar', to: 'Manticore' }]
+		]);
+	});
 });
