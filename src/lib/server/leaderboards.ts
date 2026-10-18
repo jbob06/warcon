@@ -353,7 +353,8 @@ const METRIC_SQL: Record<BoardMetric, ReturnType<typeof sql>> = {
 	kills: sql`kills`,
 	deaths: sql`deaths`,
 	kd: sql`CASE WHEN deaths > 0 THEN kills::float / deaths WHEN kills > 0 THEN kills::float ELSE NULL END`,
-	// as perHour in $lib/leaderboard: seed time and idle time both count the wait for players, so the larger goes
+	// as perHour and perMinute in $lib/leaderboard: seed time and idle time both count the wait for
+	// players, so the larger goes
 	perHour: sql`CASE WHEN minutes - GREATEST(seed_minutes, idle_minutes) > 0
 	                  THEN kills::float / ((minutes - GREATEST(seed_minutes, idle_minutes)) / 60) ELSE NULL END`,
 	playtime: sql`minutes`,
@@ -362,7 +363,8 @@ const METRIC_SQL: Record<BoardMetric, ReturnType<typeof sql>> = {
 	wins: sql`wins`,
 	winRate: sql`CASE WHEN wins + losses + draws > 0 THEN wins::float / (wins + losses + draws) ELSE NULL END`,
 	cash: sql`cash`,
-	cashPerMin: sql`CASE WHEN cash_minutes - seed_minutes > 0 THEN cash::float / (cash_minutes - seed_minutes) ELSE NULL END`
+	cashPerMin: sql`CASE WHEN cash_minutes - GREATEST(seed_minutes, idle_minutes) > 0
+	                     THEN cash::float / (cash_minutes - GREATEST(seed_minutes, idle_minutes)) ELSE NULL END`
 };
 
 interface BaseRow extends Record<string, unknown> {

@@ -262,11 +262,18 @@ export const perHour = (
 };
 
 /**
- * Cash per minute of the time it was made in (a board row's cashMinutes), seed time left out as
- * for kills per hour; nothing without such time.
+ * Cash per minute of the time it was made in (a board row's cashMinutes), the wait for players
+ * left out as for kills per hour; nothing without such time.
  */
-export const perMinute = (cash: number, minutes: number, seedMinutes = 0): number | null =>
-	minutes - seedMinutes > 0 ? cash / (minutes - seedMinutes) : null;
+export const perMinute = (
+	cash: number,
+	minutes: number,
+	seedMinutes = 0,
+	idleMinutes = 0
+): number | null => {
+	const played = minutes - Math.max(seedMinutes, idleMinutes);
+	return played > 0 ? cash / played : null;
+};
 
 /** Wins over the matches that had a result; nothing without one. */
 export const winRate = (wins: number, losses: number, draws: number): number | null => {
@@ -358,7 +365,7 @@ export function metricValue(row: BoardRow, metric: BoardMetric): number | null {
 		case 'cash':
 			return row.cash;
 		case 'cashPerMin':
-			return perMinute(row.cash, row.cashMinutes, row.seedMinutes);
+			return perMinute(row.cash, row.cashMinutes, row.seedMinutes, row.idleMinutes);
 	}
 }
 

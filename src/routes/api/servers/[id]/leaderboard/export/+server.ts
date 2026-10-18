@@ -45,7 +45,7 @@ const COLUMNS: [string, (r: BoardRow) => unknown][] = [
 	['draws', (r) => r.draws],
 	['win_pct', (r) => percent(winRate(r.wins, r.losses, r.draws))],
 	['cash', (r) => r.cash],
-	['cash_per_min', (r) => round(perMinute(r.cash, r.cashMinutes, r.seedMinutes), 1)],
+	['cash_per_min', (r) => round(perMinute(r.cash, r.cashMinutes, r.seedMinutes, r.idleMinutes), 1)],
 	['last_seen', (r) => r.lastSeen]
 ];
 

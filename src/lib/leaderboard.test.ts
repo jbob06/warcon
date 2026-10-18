@@ -102,6 +102,12 @@ describe('ratios with zero denominators', () => {
 		expect(perMinute(900, 90, 30)).toBe(15);
 		expect(perMinute(900, 90, 90)).toBeNull();
 	});
+	test('cash per minute leaves out the wait for players as kills per hour does', () => {
+		expect(perMinute(900, 90, 0, 30)).toBe(15);
+		expect(perMinute(900, 90, 30, 30)).toBe(15);
+		expect(perMinute(900, 90, 10, 30)).toBe(15);
+		expect(perMinute(900, 90, 0, 90)).toBeNull();
+	});
 	test('win rate needs a match with a result', () => {
 		expect(winRate(3, 1, 0)).toBe(0.75);
 		expect(winRate(1, 1, 2)).toBe(0.25);
