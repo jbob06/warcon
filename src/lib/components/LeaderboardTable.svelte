@@ -249,7 +249,9 @@
 					{#if show('deaths')}<td class="num">{fmtNum(r.deaths)}</td>{/if}
 					{#if show('kd')}<td class="num">{ratio(kdRatio(r.kills, r.deaths))}</td>{/if}
 					{#if show('perHour')}
-						<td class="num">{ratio(perHour(r.kills, r.minutes, r.seedMinutes), 1)}</td>
+						<td class="num"
+							>{ratio(perHour(r.kills, r.minutes, r.seedMinutes, r.idleMinutes), 1)}</td
+						>
 					{/if}
 					{#if show('headshots')}<td class="num">{r.headshots}</td>{/if}
 					{#if show('teamKills')}

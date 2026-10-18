@@ -101,6 +101,8 @@ export interface BoardRow {
 	cashMinutes: number;
 	/** minutes on with the server low, as the Seeding reward counts them (0 without a rule) */
 	seedMinutes: number;
+	/** minutes on in matches before any side had scored, the match waiting for its players */
+	idleMinutes: number;
 	kills: number;
 	deaths: number;
 	headshots: number;
@@ -245,9 +247,19 @@ export const rangeStart = (range: FixedRange, now = Date.now()): Date | null => 
 export const kdRatio = (kills: number, deaths: number): number | null =>
 	deaths > 0 ? kills / deaths : kills > 0 ? kills : null;
 
-/** Kills per hour of playtime, seed time left out; nothing without playtime beyond it. */
-export const perHour = (kills: number, minutes: number, seedMinutes = 0): number | null =>
-	minutes - seedMinutes > 0 ? kills / ((minutes - seedMinutes) / 60) : null;
+/**
+ * Kills per hour of playtime, the wait for players left out: seed time and idle time both count
+ * it, mostly over the same minutes, so the larger of the two goes. Nothing without playtime beyond it.
+ */
+export const perHour = (
+	kills: number,
+	minutes: number,
+	seedMinutes = 0,
+	idleMinutes = 0
+): number | null => {
+	const played = minutes - Math.max(seedMinutes, idleMinutes);
+	return played > 0 ? kills / (played / 60) : null;
+};
 
 /**
  * Cash per minute of the time it was made in (a board row's cashMinutes), seed time left out as
@@ -332,7 +344,7 @@ export function metricValue(row: BoardRow, metric: BoardMetric): number | null {
 		case 'kd':
 			return kdRatio(row.kills, row.deaths);
 		case 'perHour':
-			return perHour(row.kills, row.minutes, row.seedMinutes);
+			return perHour(row.kills, row.minutes, row.seedMinutes, row.idleMinutes);
 		case 'playtime':
 			return row.minutes;
 		case 'seeded':

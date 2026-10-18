@@ -32,7 +32,7 @@ const COLUMNS: [string, (r: BoardRow) => unknown][] = [
 	['kills', (r) => r.kills],
 	['deaths', (r) => r.deaths],
 	['kd', (r) => round(kdRatio(r.kills, r.deaths), 2)],
-	['kills_per_hour', (r) => round(perHour(r.kills, r.minutes, r.seedMinutes), 1)],
+	['kills_per_hour', (r) => round(perHour(r.kills, r.minutes, r.seedMinutes, r.idleMinutes), 1)],
 	['headshots', (r) => r.headshots],
 	['team_kills', (r) => r.teamKills],
 	['suicides', (r) => r.suicides],

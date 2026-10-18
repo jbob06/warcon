@@ -87,6 +87,14 @@ describe('ratios with zero denominators', () => {
 		expect(perHour(30, 90, 30)).toBe(30);
 		expect(perHour(30, 90, 90)).toBeNull();
 	});
+	test('kills per hour leaves out the wait for players, seed time or idle time, whichever is longer', () => {
+		expect(perHour(30, 90, 0, 30)).toBe(30);
+		// the two mostly count the same minutes, so they are not added up
+		expect(perHour(30, 90, 30, 30)).toBe(30);
+		expect(perHour(30, 90, 10, 30)).toBe(30);
+		expect(perHour(30, 90, 30, 10)).toBe(30);
+		expect(perHour(30, 90, 0, 90)).toBeNull();
+	});
 	test('cash per minute needs playtime, and seed time is not playtime', () => {
 		expect(perMinute(900, 90)).toBe(10);
 		expect(perMinute(900, 0)).toBeNull();
@@ -180,6 +188,7 @@ describe('metricValue', () => {
 		minutes: 120,
 		cashMinutes: 120,
 		seedMinutes: 45,
+		idleMinutes: 0,
 		kills: 40,
 		deaths: 0,
 		headshots: 5,
